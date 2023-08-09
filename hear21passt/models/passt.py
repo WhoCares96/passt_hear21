@@ -275,7 +275,7 @@ class Mlp(nn.Module):
         return x
 
 
-first_RUN = True
+first_RUN = False
 
 
 class PatchEmbed(nn.Module):
