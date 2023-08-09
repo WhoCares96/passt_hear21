@@ -50,7 +50,7 @@ class AugmentMelSTFT(nn.Module):
             self.timem = torchaudio.transforms.TimeMasking(timem, iid_masks=True)
 
 
-    def forward(self, x):
+    def forward(self, x, training):
 
         x = nn.functional.conv1d(x.unsqueeze(1), self.preemphasis_coefficient).squeeze(1)
         x = torch.stft(x, self.n_fft, hop_length=self.hopsize, win_length=self.win_length,
@@ -59,7 +59,7 @@ class AugmentMelSTFT(nn.Module):
         fmin = self.fmin + torch.randint(self.fmin_aug_range, (1,)).item()
         fmax = self.fmax + self.fmax_aug_range // 2 - torch.randint(self.fmax_aug_range, (1,)).item()
         # don't augment eval data
-        if not self.training:
+        if not training:
             fmin = self.fmin
             fmax = self.fmax
 
@@ -73,7 +73,7 @@ class AugmentMelSTFT(nn.Module):
 
         melspec = (melspec + 0.00001).log()
 
-        if self.training:
+        if training:
             melspec = self.freqm(melspec)
             melspec = self.timem(melspec)
 
