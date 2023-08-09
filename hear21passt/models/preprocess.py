@@ -54,7 +54,7 @@ class AugmentMelSTFT(nn.Module):
 
         x = nn.functional.conv1d(x.unsqueeze(1), self.preemphasis_coefficient).squeeze(1)
         x = torch.stft(x, self.n_fft, hop_length=self.hopsize, win_length=self.win_length,
-                       center=True, normalized=False, window=self.window)
+                       center=True, normalized=False, window=self.window, return_complex=True)
 
         x = torch.view_as_real(x)
         
