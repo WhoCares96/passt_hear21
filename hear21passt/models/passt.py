@@ -953,5 +953,5 @@ def get_model(arch="passt_s_kd_p16_128_ap486", pretrained=True, n_classes=527, i
                        img_size=input_size, stride=stride, u_patchout=u_patchout,
                        s_patchout_t=s_patchout_t, s_patchout_f=s_patchout_f)
     model = fix_embedding_layer(model)
-    print(model)
+    # print(model)
     return model
