@@ -373,16 +373,26 @@ class PaSST(nn.Module):
 
         x = self.pos_drop(x)
 
-        if get_intermediates:
-            intermediate_results = [
-                self.blocks[start:layer](x)
-                for start, layer in zip([0] + get_intermediates, get_intermediates)
-            ]
-            x = self.blocks[get_intermediates[-1]:](intermediate_results[-1])
-            x = self.norm(x)
+#        if get_intermediates:
+#            intermediate_results = [
+#                self.blocks[start:layer](x)
+#                for start, layer in zip([0] + get_intermediates, get_intermediates)
+#            ]
+#            x = self.blocks[get_intermediates[-1]:](intermediate_results[-1])
+#            x = self.norm(x)
+#
+#            # reduce intermediates to their cls token
+#            intermediate_results = [self.norm(y)[:, 0] for y in intermediate_results]
 
-            # reduce intermediates to their cls token
-            intermediate_results = [self.norm(y)[:, 0] for y in intermediate_results]
+        if get_intermediates:
+            intermediate_results = []
+
+            for i in range(len(self.blocks)):
+                x = self.blocks[i](x)
+                if i in get_intermediates:
+                    intermediate_results.append(self.norm(x)[:, 0])
+
+            x = self.norm(x)#[:, 0]
 
             return x[:, 0], x[:, 1], intermediate_results
 
