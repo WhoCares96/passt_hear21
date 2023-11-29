@@ -392,7 +392,7 @@ class PaSST(nn.Module):
                 if i in get_intermediates:
                     intermediate_results.append(self.norm(x)[:, 0])
 
-            x = self.norm(x)#[:, 0]
+            x = self.norm(x)
 
             return x[:, 0], x[:, 1], intermediate_results
 
