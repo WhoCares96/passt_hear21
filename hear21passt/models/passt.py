@@ -1,25 +1,19 @@
 """
-Most of this code comes from the timm  library.
+Most of this code comes from the timm library.
 We tried to disentangle from the timm library version.
 
 Adapted from https://github.com/rwightman/pytorch-image-models/blob/master/timm/models/vision_transformer.py
 
 """
+import collections
 import logging
 from functools import partial
+from itertools import repeat
 
 import torch
 import torch.nn as nn
 
-import collections
-from itertools import repeat
-
-
-from .helpers.vit_helpers import (
-    DropPath,
-    trunc_normal_,
-    load_pretrained,
-)
+from .helpers.vit_helpers import DropPath, load_pretrained, trunc_normal_
 
 _logger = logging.getLogger()
 
@@ -128,7 +122,7 @@ class PatchEmbed(nn.Module):
         if self.flatten:
             x = x.flatten(2).transpose(1, 2)  # BCHW -> BNC
         x = self.norm(x)
-        return x
+        return x  #
 
 
 class Attention(nn.Module):
@@ -215,8 +209,9 @@ class PaSST(nn.Module):
 
     def __init__(
         self,
-        s_patchout_t=0,
-        s_patchout_f=0,
+        patchout_t=0,
+        patchout_f=0,
+        patchout_mode=None,
         img_size=(128, 998),
         patch_size=16,
         stride=16,
@@ -235,8 +230,8 @@ class PaSST(nn.Module):
     ):
         """
         Args:
-            s_patchout_t: structured Patchout time integer, number of columns to be removed from the patches grid
-            s_patchout_f: structured Patchout Frequency integer, number of rows to be removed from the patches grid
+            patchout_t: structured Patchout time integer, number of columns to be removed from the patches grid
+            patchout_f: structured Patchout Frequency integer, number of rows to be removed from the patches grid
             img_size (int, tuple): input image size
             patch_size (int, tuple): patch size
             in_chans (int): number of input channels
@@ -252,8 +247,9 @@ class PaSST(nn.Module):
             norm_layer: (nn.Module): normalization layer
         """
 
-        print("s_patchout_t: \t", s_patchout_t)
-        print("s_patchout_f: \t", s_patchout_f)
+        print("patchout_t: \t", patchout_t)
+        print("patchout_f: \t", patchout_f)
+        print("patchout_mode: \t", patchout_mode)
         print("img_size: \t", img_size)
         print("patch_size: \t", patch_size)
         print("stride: \t", stride)
@@ -271,8 +267,18 @@ class PaSST(nn.Module):
         print("act_layer: \t", act_layer)
 
         super().__init__()
-        self.s_patchout_t = s_patchout_t
-        self.s_patchout_f = s_patchout_f
+
+        self.patchout_mode = patchout_mode
+
+        #        if self.patchout_type:
+        #            self.patchout_inference = patchout_inference
+        #            self.patchout_t = 0
+        #            self.patchout_f = 0
+
+        #        else:
+        #            self.patchout_t = patchout_t
+        #            self.patchout_f = patchout_f
+
         self.num_features = (
             self.embed_dim
         ) = embed_dim  # num_features for consistency with other models
@@ -347,19 +353,29 @@ class PaSST(nn.Module):
         x = x + self.time_new_pos_embed
         x = x + self.freq_new_pos_embed
 
+        # shape: [batch, n_segments, 8 (time blocks), 62 (frequency blocks)]
+
+        if self.patchout_mode == "inference":
+            # remove all but every third row
+            kept_indices_t = torch.arange(0, T_dim, 3)
+            x = x[:, :, :, kept_indices_t]
+
+            # keep all but first and last frequency blocks
+            kept_indices_f = torch.tensor([1, 2, 3, 4, 5, 6])
+            x = x[:, :, kept_indices_f, :]
+
         # Structured Patchout https://arxiv.org/abs/2110.05069 Section 2.2
-        if self.training and self.s_patchout_t:
-            # ([1, 768, 1, 82])
-            random_indices = (
-                torch.randperm(T_dim)[: T_dim - self.s_patchout_t].sort().values
-            )
-            x = x[:, :, :, random_indices]
-        if self.training and self.s_patchout_f:
-            # [1, 768, 12, 1]
-            random_indices = (
-                torch.randperm(F_dim)[: F_dim - self.s_patchout_f].sort().values
-            )
-            x = x[:, :, random_indices, :]
+        elif self.patchout_mode == "random":
+            if self.patchout_t:
+                random_indices = (
+                    torch.randperm(T_dim)[: T_dim - self.patchout_t].sort().values
+                )
+                x = x[:, :, :, random_indices]
+            if self.patchout_f:
+                random_indices = (
+                    torch.randperm(F_dim)[: F_dim - self.patchout_f].sort().values
+                )
+                x = x[:, :, random_indices, :]
 
         # Flatten the sequence
         x = x.flatten(2).transpose(1, 2)
@@ -370,36 +386,31 @@ class PaSST(nn.Module):
             self.dist_token.expand(B_dim, -1, -1) + self.new_pos_embed[:, 1:, :]
         )
         x = torch.cat((cls_tokens, dist_token, x), dim=1)
-
         x = self.pos_drop(x)
 
-#        if get_intermediates:
-#            intermediate_results = [
-#                self.blocks[start:layer](x)
-#                for start, layer in zip([0] + get_intermediates, get_intermediates)
-#            ]
-#            x = self.blocks[get_intermediates[-1]:](intermediate_results[-1])
-#            x = self.norm(x)
-#
-#            # reduce intermediates to their cls token
-#            intermediate_results = [self.norm(y)[:, 0] for y in intermediate_results]
-
-        if get_intermediates:
-            intermediate_results = []
-
+        intermediate_results = []
+        if not get_intermediates:
+            x = self.blocks(x)
+        else:
             for i in range(len(self.blocks)):
                 x = self.blocks[i](x)
                 if i in get_intermediates:
-                    intermediate_results.append(self.norm(x)[:, 0])
+                    intermediate_results.append(
+                        (
+                            self.norm(x)[:, 0],
+                            self.norm(x)[:, 1],
+                            torch.mean(self.norm(x), dim=1),
+                        )
+                    )
 
-            x = self.norm(x)
+        x = self.norm(x)
 
-            return x[:, 0], x[:, 1], intermediate_results
-
-        else:
-            x = self.blocks(x)
-            x = self.norm(x)
-            return x[:, 0], x[:, 1], []
+        return (
+            x[:, 0],  # cls embeddings
+            x[:, 1],  # dist embeddings
+            torch.mean(x, dim=1),  # avg embeddings
+            intermediate_results,  # intermediate cls, dst, avg embeddings
+        )
 
     def forward(self, x):
         x = self.forward_features(x)
@@ -434,8 +445,9 @@ def get_model(
     tstride=10,
     input_fdim=128,
     input_tdim=998,
-    s_patchout_t=0,
-    s_patchout_f=0,
+    patchout_t=0,
+    patchout_f=0,
+    patchout_mode=None,
     patch_size=16,
     embed_dim=768,
     depth=12,
@@ -468,8 +480,9 @@ def get_model(
         in_chans=in_channels,
         img_size=input_size,
         stride=stride,
-        s_patchout_t=s_patchout_t,
-        s_patchout_f=s_patchout_f,
+        patchout_t=patchout_t,
+        patchout_f=patchout_f,
+        patchout_mode=patchout_mode,
     )
     model.default_cfg = DEFAULT_CFG
 
