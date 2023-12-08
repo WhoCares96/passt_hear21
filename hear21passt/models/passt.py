@@ -346,23 +346,42 @@ class PaSST(nn.Module):
         self.apply(_init_vit_weights)
 
     def forward_features(self, x, get_intermediates=None):
+        print(x.shape)
+        if self.patchout_mode == "inference_full":
+            # keep all but first and last frequency blocks
+            kept_indices_f = torch.range(8, 103, dtype=torch.long)
+            # kept_indices_f = torch.tensor([1, 2, 3, 4, 5, 6])
+            x = x[:, :, kept_indices_f, :]
+
         x = self.patch_embed(x)  # [b, e, f, t]
         B_dim, E_dim, F_dim, T_dim = x.shape  # slow
 
+        print(self.freq_new_pos_embed.shape)
+        
         # Adding Time/Freq information
+        if self.patchout_mode == "inference_full":
+            x = x + self.freq_new_pos_embed[:,:,:6,:]
+        else:
+            x = x + self.freq_new_pos_embed
+            
         x = x + self.time_new_pos_embed
-        x = x + self.freq_new_pos_embed
+
 
         # shape: [batch, n_segments, 8 (time blocks), 62 (frequency blocks)]
 
-        if self.patchout_mode == "inference":
+        if self.patchout_mode == "inference_light":
             # remove all but every third row
             kept_indices_t = torch.arange(0, T_dim, 3)
             x = x[:, :, :, kept_indices_t]
 
             # keep all but first and last frequency blocks
-            kept_indices_f = torch.tensor([1, 2, 3, 4, 5, 6])
+            kept_indices_f = torch.tensor([0, 1, 2, 3, 4, 5, 6])
             x = x[:, :, kept_indices_f, :]
+
+        elif self.patchout_mode == "inference_full":
+            # remove all but every third row
+            kept_indices_t = torch.arange(0, T_dim, 3)
+            x = x[:, :, :, kept_indices_t]
 
         # Structured Patchout https://arxiv.org/abs/2110.05069 Section 2.2
         elif self.patchout_mode == "random":
