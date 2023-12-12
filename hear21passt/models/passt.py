@@ -270,15 +270,6 @@ class PaSST(nn.Module):
 
         self.patchout_mode = patchout_mode
 
-        #        if self.patchout_type:
-        #            self.patchout_inference = patchout_inference
-        #            self.patchout_t = 0
-        #            self.patchout_f = 0
-
-        #        else:
-        #            self.patchout_t = patchout_t
-        #            self.patchout_f = patchout_f
-
         self.num_features = (
             self.embed_dim
         ) = embed_dim  # num_features for consistency with other models
@@ -346,42 +337,22 @@ class PaSST(nn.Module):
         self.apply(_init_vit_weights)
 
     def forward_features(self, x, get_intermediates=None):
-        print(x.shape)
-        if self.patchout_mode == "inference_full":
-            # keep all but first and last frequency blocks
-            kept_indices_f = torch.range(8, 103, dtype=torch.long)
-            # kept_indices_f = torch.tensor([1, 2, 3, 4, 5, 6])
-            x = x[:, :, kept_indices_f, :]
-
         x = self.patch_embed(x)  # [b, e, f, t]
         B_dim, E_dim, F_dim, T_dim = x.shape  # slow
 
-        print(self.freq_new_pos_embed.shape)
-        
         # Adding Time/Freq information
-        if self.patchout_mode == "inference_full":
-            x = x + self.freq_new_pos_embed[:,:,:6,:]
-        else:
-            x = x + self.freq_new_pos_embed
-            
+        x = x + self.freq_new_pos_embed
         x = x + self.time_new_pos_embed
 
-
         # shape: [batch, n_segments, 8 (time blocks), 62 (frequency blocks)]
-
-        if self.patchout_mode == "inference_light":
+        if self.patchout_mode == "inference":
             # remove all but every third row
             kept_indices_t = torch.arange(0, T_dim, 3)
             x = x[:, :, :, kept_indices_t]
 
-            # keep all but first and last frequency blocks
+            # keep all but last frequency blocks
             kept_indices_f = torch.tensor([0, 1, 2, 3, 4, 5, 6])
             x = x[:, :, kept_indices_f, :]
-
-        elif self.patchout_mode == "inference_full":
-            # remove all but every third row
-            kept_indices_t = torch.arange(0, T_dim, 3)
-            x = x[:, :, :, kept_indices_t]
 
         # Structured Patchout https://arxiv.org/abs/2110.05069 Section 2.2
         elif self.patchout_mode == "random":
@@ -472,7 +443,7 @@ def get_model(
     depth=12,
     num_heads=12,
 ):
-    """todo"""
+    """Creates model based on given configuration."""
 
     input_size = (input_fdim, input_tdim)
     stride = (fstride, tstride)
@@ -486,8 +457,13 @@ def get_model(
             "get_model(arch='passt_s_p16_s16_128_ap468'...,fstride=16, tstride=16)"
         )
 
+    if patchout_mode not in ["random", "inference", None]:
+        raise ValueError(
+            "'patchout_mode' can only be one of ['random', 'inference', None]"
+        )
+
     print(
-        "\n\nLoading PaSST pre-trained on AudioSet Patch 16 stride 16 structured patchout mAP=468 \n\n"
+        "\n\nLoading PaSST pre-trained on AudioSet Patch 16 stride 16 structured patchout mAP=486 \n\n"
     )
 
     # Build the model
